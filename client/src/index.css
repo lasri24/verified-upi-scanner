@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply transition-colors duration-200;
+  }
+}
+
+/* Custom scanner laser animation */
+@keyframes laser-beam {
+  0% {
+    top: 5%;
+  }
+  50% {
+    top: 90%;
+  }
+  100% {
+    top: 5%;
+  }
+}
+
+.scanner-laser {
+  animation: laser-beam 3s infinite linear;
+}
+
+/* Glassmorphism card utility */
+.glass-panel {
+  @apply bg-white/70 dark:bg-[#121b2d]/70 backdrop-blur-md border border-gray-200/50 dark:border-gray-800/50 shadow-xl;
+}
+
+.glass-card {
+  @apply bg-white/90 dark:bg-[#151f33]/90 border border-gray-100 dark:border-gray-800/80 shadow-md transition-all duration-200 hover:shadow-lg hover:border-gray-200 dark:hover:border-gray-700/60;
+}
+
+/* Dark mode custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 dark:bg-gray-700 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400 dark:bg-gray-600;
+}

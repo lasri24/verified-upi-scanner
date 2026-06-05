@@ -1,0 +1,16 @@
+{
+  "name": "safe-scanner",
+  "version": "1.0.0",
+  "description": "AI-Powered Secure UPI QR Code Verification and Fraud Detection System",
+  "main": "server/server.js",
+  "scripts": {
+    "install-all": "npm install && npm install --prefix server && npm install --prefix client --legacy-peer-deps",
+    "server": "node server/server.js",
+    "client": "npm run dev --prefix client",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "ml-train": "python ml/train.py"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

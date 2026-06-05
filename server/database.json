@@ -1,0 +1,159 @@
+{
+  "blacklist": [
+    "fraud.cash@okaxis",
+    "lucky.draw.pay@ybl",
+    "scammer@okaxis",
+    "verify.refund@paytm",
+    "jackpot.winner@okhdfc",
+    "free.recharge@ybl",
+    "scam.support@okicici"
+  ],
+  "merchants": [
+    {
+      "upiId": "grocery@okaxis",
+      "name": "Ram's Grocery Store",
+      "registeredDays": 450,
+      "isVerified": true,
+      "trustScore": 95,
+      "category": "Retail",
+      "location": {
+        "lat": 19.076,
+        "lng": 72.8777,
+        "name": "Mumbai, MH"
+      }
+    },
+    {
+      "upiId": "metro@hdfcbank",
+      "name": "Metro Supermarket",
+      "registeredDays": 1200,
+      "isVerified": true,
+      "trustScore": 98,
+      "category": "Supermarket",
+      "location": {
+        "lat": 28.6139,
+        "lng": 77.209,
+        "name": "New Delhi, DL"
+      }
+    },
+    {
+      "upiId": "gupta.sweets@sbi",
+      "name": "Gupta Sweets & Snacks",
+      "registeredDays": 800,
+      "isVerified": true,
+      "trustScore": 92,
+      "category": "Food & Beverage",
+      "location": {
+        "lat": 22.5726,
+        "lng": 88.3639,
+        "name": "Kolkata, WB"
+      }
+    },
+    {
+      "upiId": "fastpay.agent@paytm",
+      "name": "FastPay Cashier",
+      "registeredDays": 3,
+      "isVerified": false,
+      "trustScore": 15,
+      "category": "Financial Services",
+      "location": {
+        "lat": 12.9716,
+        "lng": 77.5946,
+        "name": "Bengaluru, KA"
+      }
+    },
+    {
+      "upiId": "win.prize@ybl",
+      "name": "Lucky Draw Prizes Inc",
+      "registeredDays": 1,
+      "isVerified": false,
+      "trustScore": 8,
+      "category": "Lottery / Gifts",
+      "location": {
+        "lat": 17.385,
+        "lng": 78.4867,
+        "name": "Hyderabad, TS"
+      }
+    },
+    {
+      "upiId": "cashback.helper@okaxis",
+      "name": "GPay Cashback Agent",
+      "registeredDays": 15,
+      "isVerified": false,
+      "trustScore": 30,
+      "category": "Assistance",
+      "location": {
+        "lat": 13.0827,
+        "lng": 80.2707,
+        "name": "Chennai, TN"
+      }
+    }
+  ],
+  "reports": [
+    {
+      "id": "rep_1",
+      "upiId": "free.recharge@ybl",
+      "merchantName": "Free Mobile Recharge Portal",
+      "reason": "Claims to double recharge amount but deducts money without service.",
+      "reportedBy": "amit_sharma99",
+      "status": "approved",
+      "createdAt": "2026-06-05T10:15:00.000Z",
+      "evidenceImage": ""
+    },
+    {
+      "id": "rep_2",
+      "upiId": "scam.support@okicici",
+      "merchantName": "SBI Help Center Chatbot",
+      "reason": "Impersonating official SBI customer support to steal banking details.",
+      "reportedBy": "neha_patel",
+      "status": "approved",
+      "createdAt": "2026-06-05T14:30:00.000Z",
+      "evidenceImage": ""
+    },
+    {
+      "id": "rep_3",
+      "upiId": "verify.refund@paytm",
+      "merchantName": "Instant Refund Desk",
+      "reason": "Fake refund QR code. Already added to blacklist.",
+      "reportedBy": "admin",
+      "status": "approved",
+      "createdAt": "2026-06-04T08:00:00.000Z",
+      "evidenceImage": ""
+    }
+  ],
+  "scans": [
+    {
+      "id": "scan_1",
+      "upiId": "grocery@okaxis",
+      "merchantName": "Ram's Grocery Store",
+      "amount": 250,
+      "note": "Weekly vegetables",
+      "riskScore": 97,
+      "riskLevel": "safe",
+      "timestamp": "2026-06-05T18:30:00.000Z",
+      "location": {
+        "lat": 19.076,
+        "lng": 72.8777,
+        "name": "Mumbai, MH"
+      },
+      "tamperingDetected": false,
+      "voiceMessage": "Safe to proceed."
+    },
+    {
+      "id": "scan_2",
+      "upiId": "win.prize@ybl",
+      "merchantName": "Lucky Draw Prizes Inc",
+      "amount": 1000,
+      "note": "Claim Fee",
+      "riskScore": 12,
+      "riskLevel": "high",
+      "timestamp": "2026-06-05T19:00:00.000Z",
+      "location": {
+        "lat": 17.385,
+        "lng": 78.4867,
+        "name": "Hyderabad, TS"
+      },
+      "tamperingDetected": false,
+      "voiceMessage": "This QR code appears suspicious."
+    }
+  ]
+}
