@@ -32,7 +32,6 @@ const App = () => {
 
   // Authentication forms
   const [usernameInput, setUsernameInput] = useState('');
-  const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
 
   // Report fraud form states
@@ -129,13 +128,10 @@ const App = () => {
 
   const handleLogin = (role) => {
     setAuthError('');
-    if (role === 'admin') {
-      if (usernameInput.trim().toLowerCase() === 'admin') {
-        setCurrentUser({ username: 'Administrator', role: 'admin' });
-        setCurrentView('admin');
-      } else {
-        setAuthError('Enter username "admin" to access the Admin Console.');
-      }
+    const cleanUsername = usernameInput.trim().toLowerCase();
+    if (cleanUsername === 'admin') {
+      setCurrentUser({ username: 'Administrator', role: 'admin' });
+      setCurrentView('admin');
     } else {
       const username = usernameInput.trim() || 'Guest User';
       setCurrentUser({ username, role: 'user' });
@@ -147,7 +143,6 @@ const App = () => {
   const handleLogout = () => {
     setCurrentUser(null);
     setUsernameInput('');
-    setPasswordInput('');
     setCurrentView('login');
   };
 
@@ -454,6 +449,7 @@ const App = () => {
                 <input
                   type="text"
                   id="login-username"
+                  autoComplete="off"
                   placeholder="Enter your name or type 'admin'"
                   value={usernameInput}
                   onChange={(e) => setUsernameInput(e.target.value)}
