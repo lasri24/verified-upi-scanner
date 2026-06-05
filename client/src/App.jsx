@@ -464,7 +464,7 @@ const App = () => {
                   <input
                     type="text"
                     autoComplete="off"
-                    placeholder={loginRole === 'admin' ? 'Enter "admin"' : 'Enter username'}
+                    placeholder="Enter your username"
                     value={usernameInput}
                     onChange={(e) => setUsernameInput(e.target.value)}
                     className="w-full text-xs bg-white/5 border border-white/10 rounded-xl px-4 py-3 pl-10 text-white outline-none focus:border-blue-500/80 transition"
@@ -478,7 +478,7 @@ const App = () => {
                   <Lock className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
                   <input
                     type={showPassword ? "text" : "password"}
-                    placeholder={loginRole === 'admin' ? 'Enter Admin@1234' : 'Enter password'}
+                    placeholder="Enter your password"
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
                     className="w-full text-xs bg-white/5 border border-white/10 rounded-xl px-4 py-3 pl-10 pr-10 text-white outline-none focus:border-blue-500/80 transition"
@@ -515,6 +515,12 @@ const App = () => {
                 </button>
               </div>
             )}
+          </div>
+
+          {/* Security footer */}
+          <div className="text-center mt-5 flex items-center justify-center gap-2 text-xs text-gray-600">
+            <Lock className="w-3 h-3 text-gray-600" />
+            <span>Secure authentication required</span>
           </div>
         </div>
       </div>
