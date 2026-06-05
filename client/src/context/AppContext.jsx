@@ -148,6 +148,7 @@ const translations = {
 export const AppProvider = ({ children }) => {
   const [currentView, setCurrentView] = useState('splash'); // splash, login, home, admin
   const [currentUser, setCurrentUser] = useState(null); // { username, role }
+  const [token, setToken] = useState(localStorage.getItem('safe_scanner_token') || null);
   const [language, setLanguage] = useState('en');
   const [darkMode, setDarkMode] = useState(true);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -166,6 +167,15 @@ export const AppProvider = ({ children }) => {
   const [latestScanResult, setLatestScanResult] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
 
+  // Helper to fetch authorization headers
+  const getAuthHeaders = () => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+  };
+
   // Translate helper
   const t = (key) => {
     return translations[language][key] || key;
@@ -181,13 +191,72 @@ export const AppProvider = ({ children }) => {
     }
   }, [darkMode]);
 
-  // Load history from API on start
+  // Authenticate / Validate Token on Boot
+  useEffect(() => {
+    const validateToken = async () => {
+      if (!token) {
+        if (currentView !== 'splash') {
+          setCurrentView('login');
+        }
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE_URL}/auth/me`, {
+          headers: getAuthHeaders()
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setCurrentUser(data.user);
+          if (data.user.role === 'admin') {
+            setCurrentView('admin');
+          } else {
+            setCurrentView('home');
+          }
+        } else {
+          // Token expired or invalid
+          handleLogout();
+        }
+      } catch (err) {
+        console.warn("API offline, maintaining token state local fallback.");
+        // offline fallback: assume token role based on JWT decode or local parse
+        try {
+          const base64Url = token.split('.')[1];
+          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+          const payload = JSON.parse(window.atob(base64));
+          setCurrentUser({ username: payload.username, role: payload.role });
+          if (payload.role === 'admin') {
+            setCurrentView('admin');
+          } else {
+            setCurrentView('home');
+          }
+        } catch (e) {
+          handleLogout();
+        }
+      }
+    };
+    validateToken();
+  }, [token]);
+
+  // Handle Logout
+  const handleLogout = () => {
+    setToken(null);
+    setCurrentUser(null);
+    localStorage.removeItem('safe_scanner_token');
+    setCurrentView('login');
+  };
+
+  // Load history from API
   const fetchScanHistory = async () => {
+    if (!token) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/scans`);
+      const res = await fetch(`${API_BASE_URL}/scans`, {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await res.json();
         setScanHistory(data);
+      } else if (res.status === 401 || res.status === 403) {
+        handleLogout();
       }
     } catch (err) {
       console.error("Error loading scan history:", err);
@@ -200,7 +269,7 @@ export const AppProvider = ({ children }) => {
       setIsScanning(true);
       const response = await fetch(`${API_BASE_URL}/verify-qr`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           qrString,
           userLocation: { lat: currentGps.lat, lng: currentGps.lng },
@@ -208,8 +277,14 @@ export const AppProvider = ({ children }) => {
         })
       });
 
+      if (response.status === 401 || response.status === 403) {
+        handleLogout();
+        throw new Error("Session expired.");
+      }
+
       if (!response.ok) {
-        throw new Error("API call failed");
+        const errorData = await response.json();
+        throw new Error(errorData.error || "API call failed");
       }
 
       const result = await response.json();
@@ -246,7 +321,6 @@ export const AppProvider = ({ children }) => {
   // Trigger web speech synthesis
   const triggerVoiceAlert = (message) => {
     if ('speechSynthesis' in window) {
-      // Cancel active speech
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(message);
       utterance.lang = language === 'hi' ? 'hi-IN' : language === 'te' ? 'te-IN' : 'en-US';
@@ -323,12 +397,16 @@ export const AppProvider = ({ children }) => {
     try {
       const response = await fetch(`${API_BASE_URL}/report`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           ...reportData,
           reporterLocation: currentGps
         })
       });
+      if (response.status === 401 || response.status === 403) {
+        handleLogout();
+        return false;
+      }
       return response.ok;
     } catch (err) {
       console.error("Report Fraud failed:", err);
@@ -342,6 +420,8 @@ export const AppProvider = ({ children }) => {
       setCurrentView,
       currentUser,
       setCurrentUser,
+      token,
+      setToken,
       language,
       setLanguage,
       darkMode,
@@ -359,6 +439,8 @@ export const AppProvider = ({ children }) => {
       verifyUpiQr,
       submitFraudReport,
       fetchScanHistory,
+      handleLogout,
+      getAuthHeaders,
       t,
       API_BASE_URL
     }}>

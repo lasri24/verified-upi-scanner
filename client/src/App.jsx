@@ -6,17 +6,17 @@ import SecurityChat from './components/SecurityChat';
 import {
   ShieldAlert, ShieldCheck, Camera, History, MessageSquare, BookOpen, Settings,
   User, Shield, Smartphone, Monitor, Globe, Volume2, VolumeX, MapPin, BarChart3,
-  Users, AlertTriangle, FileText, CheckCircle2, XCircle, Plus, Trash2, Send,
-  HelpCircle, LogOut, Moon, Sun, ArrowLeft
+  Users, AlertTriangle, FileText, CheckCircle2, XCircle, Plus, Trash2, LogOut, 
+  Moon, Sun, HelpCircle, Eye, EyeOff, Lock
 } from 'lucide-react';
 
 const App = () => {
   const {
-    currentView, setCurrentView, currentUser, setCurrentUser,
+    currentView, setCurrentView, currentUser, setCurrentUser, token, setToken,
     language, setLanguage, darkMode, setDarkMode, voiceEnabled, setVoiceEnabled,
     gpsLocations, currentGps, setCurrentGps, scanHistory, setScanHistory,
     latestScanResult, setLatestScanResult, isScanning, verifyUpiQr,
-    submitFraudReport, fetchScanHistory, t, API_BASE_URL
+    submitFraudReport, fetchScanHistory, handleLogout, getAuthHeaders, t, API_BASE_URL
   } = useContext(AppContext);
 
   // Layout presentation mode: 'desktop' or 'mobile'
@@ -31,8 +31,13 @@ const App = () => {
   const [selectedScanDetail, setSelectedScanDetail] = useState(null);
 
   // Authentication forms
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [loginRole, setLoginRole] = useState('user'); // user, admin
   const [usernameInput, setUsernameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [authSuccess, setAuthSuccess] = useState('');
 
   // Report fraud form states
   const [reportUpi, setReportUpi] = useState('');
@@ -46,7 +51,7 @@ const App = () => {
   const [quizAnswered, setQuizAnswered] = useState(false);
   const [quizSelectedOption, setQuizSelectedOption] = useState(null);
   
-  // Admin tables and stats
+  // Admin tables, stats, and audit logs
   const [adminStats, setAdminStats] = useState({
     totalScans: 0,
     threatsBlocked: 0,
@@ -56,6 +61,8 @@ const App = () => {
   const [adminReports, setAdminReports] = useState([]);
   const [adminBlacklist, setAdminBlacklist] = useState([]);
   const [adminMerchants, setAdminMerchants] = useState([]);
+  const [adminAuditLogs, setAdminAuditLogs] = useState([]);
+  const [adminActiveTab, setAdminActiveTab] = useState('dashboard'); // dashboard, reports, blacklist, merchants, logs
   
   // Add manual blacklist UPI input
   const [newBlacklistUpi, setNewBlacklistUpi] = useState('');
@@ -72,14 +79,17 @@ const App = () => {
 
   // Run initial setups
   useEffect(() => {
-    // Auto timeout for splash screen
     if (currentView === 'splash') {
       const timer = setTimeout(() => {
-        setCurrentView('login');
+        if (token) {
+          // Token watcher handles view change
+        } else {
+          setCurrentView('login');
+        }
       }, 2500);
       return () => clearTimeout(timer);
     }
-  }, [currentView]);
+  }, [currentView, token]);
 
   // Load backend data if available
   useEffect(() => {
@@ -92,22 +102,30 @@ const App = () => {
   }, [currentUser]);
 
   const fetchAdminData = async () => {
+    if (!token) return;
     try {
-      // Fetch scan metrics
-      const scansRes = await fetch(`${API_BASE_URL}/scans`);
-      const reportsRes = await fetch(`${API_BASE_URL}/reports`);
-      const blacklistRes = await fetch(`${API_BASE_URL}/blacklist`);
-      const merchantsRes = await fetch(`${API_BASE_URL}/merchants`);
+      const scansRes = await fetch(`${API_BASE_URL}/scans`, { headers: getAuthHeaders() });
+      const reportsRes = await fetch(`${API_BASE_URL}/reports`, { headers: getAuthHeaders() });
+      const blacklistRes = await fetch(`${API_BASE_URL}/blacklist`, { headers: getAuthHeaders() });
+      const merchantsRes = await fetch(`${API_BASE_URL}/merchants`, { headers: getAuthHeaders() });
+      const logsRes = await fetch(`${API_BASE_URL}/admin/logs`, { headers: getAuthHeaders() });
 
-      if (scansRes.ok && reportsRes.ok && blacklistRes.ok && merchantsRes.ok) {
+      if (scansRes.status === 401 || scansRes.status === 403) {
+        handleLogout();
+        return;
+      }
+
+      if (scansRes.ok && reportsRes.ok && blacklistRes.ok && merchantsRes.ok && logsRes.ok) {
         const scans = await scansRes.json();
         const reports = await reportsRes.json();
         const blacklist = await blacklistRes.json();
         const merchants = await merchantsRes.json();
+        const logs = await logsRes.json();
 
         setAdminReports(reports);
         setAdminBlacklist(blacklist);
         setAdminMerchants(merchants);
+        setAdminAuditLogs(logs);
 
         // Calculate aggregate stats
         const highRiskScans = scans.filter(s => s.riskLevel === 'high').length;
@@ -126,24 +144,54 @@ const App = () => {
     }
   };
 
-  const handleLogin = (role) => {
+  const handleLoginSubmit = async (e) => {
+    e.preventDefault();
     setAuthError('');
-    const cleanUsername = usernameInput.trim().toLowerCase();
-    if (cleanUsername === 'admin') {
-      setCurrentUser({ username: 'Administrator', role: 'admin' });
-      setCurrentView('admin');
-    } else {
-      const username = usernameInput.trim() || 'Guest User';
-      setCurrentUser({ username, role: 'user' });
-      setCurrentView('home');
-      setActiveTab('home');
-    }
-  };
+    setAuthSuccess('');
 
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setUsernameInput('');
-    setCurrentView('login');
+    if (!usernameInput || !passwordInput) {
+      setAuthError('Please fill in all input credentials.');
+      return;
+    }
+
+    try {
+      const endpoint = isRegistering ? '/auth/register' : '/auth/login';
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: usernameInput,
+          password: passwordInput
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setAuthError(data.error || 'Authentication check failed.');
+        return;
+      }
+
+      if (isRegistering) {
+        setAuthSuccess('Registration successful! You can now log in.');
+        setIsRegistering(false);
+        setPasswordInput('');
+      } else {
+        localStorage.setItem('safe_scanner_token', data.token);
+        setToken(data.token);
+        setCurrentUser(data.user);
+        setUsernameInput('');
+        setPasswordInput('');
+        if (data.user.role === 'admin') {
+          setCurrentView('admin');
+        } else {
+          setCurrentView('home');
+          setActiveTab('home');
+        }
+      }
+    } catch (err) {
+      setAuthError('Connection failed. Server backend is offline.');
+    }
   };
 
   // Submit Community Report
@@ -174,7 +222,7 @@ const App = () => {
     try {
       const res = await fetch(`${API_BASE_URL}/reports/review`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ id: reportId, action })
       });
       if (res.ok) {
@@ -191,7 +239,7 @@ const App = () => {
     try {
       const res = await fetch(`${API_BASE_URL}/blacklist/add`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ upiId: newBlacklistUpi })
       });
       if (res.ok) {
@@ -207,7 +255,7 @@ const App = () => {
     try {
       const res = await fetch(`${API_BASE_URL}/blacklist/remove`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ upiId })
       });
       if (res.ok) {
@@ -224,7 +272,7 @@ const App = () => {
     try {
       const res = await fetch(`${API_BASE_URL}/merchants/update`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           upiId: newMerchantUpi,
           name: newMerchantName,
@@ -295,7 +343,6 @@ const App = () => {
     if (quizIndex < quizData.length - 1) {
       setQuizIndex(quizIndex + 1);
     } else {
-      // reset
       setQuizIndex(0);
       setQuizScore(0);
     }
@@ -315,7 +362,6 @@ const App = () => {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-[#060a12] via-[#0b1326] to-[#050910] text-white select-none">
         <div className="relative flex items-center justify-center mb-6">
-          {/* Animated concentric rings */}
           <div className="absolute w-24 h-24 rounded-full border border-blue-500/20 animate-ping [animation-duration:2s]"></div>
           <div className="absolute w-32 h-32 rounded-full border border-blue-500/10 animate-ping [animation-duration:3s]"></div>
           <div className="bg-gradient-to-tr from-blue-600 to-indigo-600 p-6 rounded-3xl shadow-xl shadow-blue-500/20 border border-blue-400/30 z-10">
@@ -338,201 +384,699 @@ const App = () => {
     );
   }
 
-  // Render Login & Registration Page
+  // Render Hardened Login & Registration Page
   if (currentView === 'login') {
     const features = [
-      { icon: '🛡️', label: 'AI Fraud Detection', desc: 'ML-powered risk scoring' },
-      { icon: '📍', label: 'GPS Verification', desc: 'Location-based safety' },
-      { icon: '⚡', label: 'Instant Scan', desc: 'Real-time QR analysis' },
+      { icon: '🛡️', label: 'AI Fraud Detection' },
+      { icon: '📍', label: 'GPS Verification' },
+      { icon: '🔒', label: 'OWASP Safe' },
     ];
     return (
       <div className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center p-4"
-        style={{
-          background: 'linear-gradient(135deg, #060a12 0%, #0b1326 40%, #0d1f3c 70%, #050910 100%)'
-        }}
+        style={{ background: 'linear-gradient(135deg, #060a12 0%, #0b1326 40%, #0d1f3c 70%, #050910 100%)' }}
       >
-        {/* Animated background orbs */}
-        <div style={{
-          position: 'absolute', width: '400px', height: '400px', borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(59,130,246,0.12) 0%, transparent 70%)',
-          top: '-100px', left: '-100px', animation: 'pulse 6s ease-in-out infinite'
-        }} />
-        <div style={{
-          position: 'absolute', width: '300px', height: '300px', borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(99,102,241,0.10) 0%, transparent 70%)',
-          bottom: '-80px', right: '-80px', animation: 'pulse 8s ease-in-out infinite 2s'
-        }} />
-        <div style={{
-          position: 'absolute', width: '200px', height: '200px', borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(16,185,129,0.07) 0%, transparent 70%)',
-          top: '50%', right: '10%', animation: 'pulse 7s ease-in-out infinite 1s'
-        }} />
-
-        {/* Grid overlay */}
-        <div style={{
-          position: 'absolute', inset: 0,
-          backgroundImage: 'linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)',
-          backgroundSize: '40px 40px'
-        }} />
+        {/* Decorative Grid and Orbs */}
+        <div style={{ position: 'absolute', width: '450px', height: '450px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(59,130,246,0.1) 0%, transparent 70%)', top: '-150px', left: '-150px' }} />
+        <div style={{ position: 'absolute', width: '350px', height: '350px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(99,102,241,0.08) 0%, transparent 70%)', bottom: '-100px', right: '-100px' }} />
+        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(59,130,246,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.02) 1px, transparent 1px)', backgroundSize: '30px 30px' }} />
 
         <div className="relative z-10 w-full max-w-md">
-          {/* Brand Header */}
-          <div className="text-center mb-8">
-            <div className="inline-flex relative mb-5">
-              <div style={{
-                position: 'absolute', inset: '-8px', borderRadius: '24px',
-                background: 'linear-gradient(135deg, rgba(59,130,246,0.3), rgba(99,102,241,0.3))',
-                filter: 'blur(12px)', animation: 'pulse 3s ease-in-out infinite'
-              }} />
-              <div style={{
-                background: 'linear-gradient(135deg, #1d4ed8, #4f46e5)',
-                borderRadius: '20px', padding: '18px',
-                border: '1px solid rgba(99,102,241,0.4)',
-                boxShadow: '0 0 40px rgba(59,130,246,0.25)'
-              }}>
-                <ShieldCheck style={{ width: '36px', height: '36px', color: 'white' }} />
+          {/* Header */}
+          <div className="text-center mb-6">
+            <div className="inline-flex relative mb-4">
+              <div style={{ position: 'absolute', inset: '-6px', borderRadius: '20px', background: 'linear-gradient(135deg, rgba(59,130,246,0.3), rgba(99,102,241,0.3))', filter: 'blur(10px)' }} />
+              <div style={{ background: 'linear-gradient(135deg, #1d4ed8, #4f46e5)', borderRadius: '16px', padding: '14px', border: '1px solid rgba(99,102,241,0.3)', boxShadow: '0 0 30px rgba(59,130,246,0.2)' }}>
+                <ShieldCheck style={{ width: '32px', height: '32px', color: 'white' }} />
               </div>
             </div>
-            <h1 style={{
-              fontSize: '2.25rem', fontWeight: 800, letterSpacing: '-0.02em',
-              background: 'linear-gradient(135deg, #93c5fd, #c7d2fe, #ffffff)',
-              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text', marginBottom: '8px'
-            }}>Safe Scanner</h1>
-            <p style={{
-              fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.15em',
-              textTransform: 'uppercase', color: '#60a5fa'
-            }}>Scan Smart. Pay Safe. 🔒</p>
+            <h1 className="text-3xl font-extrabold text-white tracking-tight">Safe Scanner</h1>
+            <p className="text-xs font-bold text-blue-400 mt-1 uppercase tracking-wider">Cybersecurity Edition</p>
           </div>
 
-          {/* Feature Pills */}
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '28px', flexWrap: 'wrap' }}>
-            {features.map((f) => (
-              <div key={f.label} style={{
-                display: 'flex', alignItems: 'center', gap: '6px',
-                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '100px', padding: '6px 14px', backdropFilter: 'blur(10px)'
-              }}>
-                <span style={{ fontSize: '14px' }}>{f.icon}</span>
-                <span style={{ fontSize: '11px', fontWeight: 600, color: '#cbd5e1' }}>{f.label}</span>
-              </div>
-            ))}
+          {/* Role selector tabs */}
+          <div className="flex bg-white/5 border border-white/10 p-1.5 rounded-2xl mb-4 backdrop-blur">
+            <button
+              onClick={() => { setLoginRole('user'); setAuthError(''); setAuthSuccess(''); }}
+              className={`flex-1 text-xs py-2 rounded-xl transition font-bold flex items-center justify-center gap-1.5 ${loginRole === 'user' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+            >
+              <User className="w-3.5 h-3.5" /> User Access
+            </button>
+            <button
+              onClick={() => { setLoginRole('admin'); setIsRegistering(false); setAuthError(''); setAuthSuccess(''); }}
+              className={`flex-1 text-xs py-2 rounded-xl transition font-bold flex items-center justify-center gap-1.5 ${loginRole === 'admin' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+            >
+              <Shield className="w-3.5 h-3.5" /> Administrator
+            </button>
           </div>
 
-          {/* Login Card */}
-          <div style={{
-            background: 'rgba(255,255,255,0.04)',
-            backdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: '28px',
-            padding: '32px',
-            boxShadow: '0 25px 60px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08)'
-          }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'white', marginBottom: '6px' }}>Welcome Back</h2>
-            <p style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '24px' }}>Enter your name to access the portal</p>
+          {/* Login Form Box */}
+          <div className="bg-white/5 border border-white/10 rounded-3xl p-6 shadow-2xl backdrop-blur-xl">
+            <h3 className="text-lg font-bold text-white mb-1">
+              {loginRole === 'admin' ? 'Admin Portal' : isRegistering ? 'Create User Account' : 'User Portal'}
+            </h3>
+            <p className="text-xs text-gray-400 mb-5">
+              {loginRole === 'admin' 
+                ? 'Authorized personnel login verification.' 
+                : isRegistering 
+                  ? 'Register a secure password-protected wallet checker.' 
+                  : 'Enter credentials to scan and verify UPI codes.'}
+            </p>
 
             {authError && (
-              <div style={{
-                background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
-                borderRadius: '14px', padding: '12px 16px', marginBottom: '20px',
-                display: 'flex', alignItems: 'center', gap: '10px'
-              }}>
-                <AlertTriangle style={{ width: '16px', height: '16px', color: '#f87171', flexShrink: 0 }} />
-                <span style={{ fontSize: '12px', color: '#f87171' }}>{authError}</span>
+              <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-3 mb-4 flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                <span className="text-xs text-red-400 leading-normal">{authError}</span>
               </div>
             )}
 
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94a3b8', marginBottom: '8px', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Your Name</label>
-              <div style={{ position: 'relative' }}>
-                <User style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', width: '16px', height: '16px', color: '#60a5fa' }} />
-                <input
-                  type="text"
-                  id="login-username"
-                  autoComplete="off"
-                  placeholder="Enter your name or type 'admin'"
-                  value={usernameInput}
-                  onChange={(e) => setUsernameInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleLogin('user')}
-                  style={{
-                    width: '100%', boxSizing: 'border-box',
-                    background: 'rgba(255,255,255,0.06)',
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    borderRadius: '14px', padding: '13px 16px 13px 42px',
-                    color: 'white', fontSize: '14px', outline: 'none',
-                    transition: 'border-color 0.2s',
-                  }}
-                  onFocus={(e) => e.target.style.borderColor = 'rgba(99,102,241,0.6)'}
-                  onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.12)'}
-                />
+            {authSuccess && (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3 mb-4 flex items-start gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                <span className="text-xs text-emerald-400 leading-normal">{authSuccess}</span>
               </div>
-            </div>
+            )}
 
-            {/* Login Buttons */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px' }}>
+            <form onSubmit={handleLoginSubmit} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Username</label>
+                <div className="relative">
+                  <User className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    placeholder={loginRole === 'admin' ? 'Enter "admin"' : 'Enter username'}
+                    value={usernameInput}
+                    onChange={(e) => setUsernameInput(e.target.value)}
+                    className="w-full text-xs bg-white/5 border border-white/10 rounded-xl px-4 py-3 pl-10 text-white outline-none focus:border-blue-500/80 transition"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    placeholder={loginRole === 'admin' ? 'Enter Admin@1234' : 'Enter password'}
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    className="w-full text-xs bg-white/5 border border-white/10 rounded-xl px-4 py-3 pl-10 pr-10 text-white outline-none focus:border-blue-500/80 transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3.5 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
               <button
-                id="user-login-btn"
-                onClick={() => handleLogin('user')}
-                style={{
-                  background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
-                  border: '1px solid rgba(59,130,246,0.4)',
-                  borderRadius: '14px', padding: '13px 16px',
-                  color: 'white', fontWeight: 700, fontSize: '13px',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', gap: '8px',
-                  boxShadow: '0 4px 20px rgba(37,99,235,0.35)',
-                  transition: 'transform 0.15s, box-shadow 0.15s'
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 8px 25px rgba(37,99,235,0.45)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(37,99,235,0.35)'; }}
+                type="submit"
+                className={`w-full py-3 rounded-xl text-white font-bold text-xs shadow-lg transition duration-200 mt-2 ${
+                  loginRole === 'admin' 
+                    ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 hover:shadow-indigo-600/20' 
+                    : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:shadow-blue-600/20'
+                }`}
               >
-                <User style={{ width: '15px', height: '15px' }} /> User Portal
+                {isRegistering ? 'Complete Registration' : 'Secure Authenticate'}
               </button>
-              <button
-                id="admin-login-btn"
-                onClick={() => handleLogin('admin')}
-                style={{
-                  background: 'linear-gradient(135deg, #4338ca, #6366f1)',
-                  border: '1px solid rgba(99,102,241,0.4)',
-                  borderRadius: '14px', padding: '13px 16px',
-                  color: 'white', fontWeight: 700, fontSize: '13px',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', gap: '8px',
-                  boxShadow: '0 4px 20px rgba(67,56,202,0.35)',
-                  transition: 'transform 0.15s, box-shadow 0.15s'
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 8px 25px rgba(67,56,202,0.45)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(67,56,202,0.35)'; }}
-              >
-                <Shield style={{ width: '15px', height: '15px' }} /> Admin Console
-              </button>
-            </div>
+            </form>
 
-            {/* Hint */}
-            <div style={{ marginTop: '20px', padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-              <p style={{ fontSize: '11px', color: '#64748b', textAlign: 'center' }}>
-                💡 Users: enter any name &nbsp;•&nbsp; Admin: enter <strong style={{ color: '#818cf8' }}>admin</strong>
-              </p>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div style={{ textAlign: 'center', marginTop: '24px' }}>
-            <p style={{ fontSize: '10px', color: '#334155', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-              B.Tech Final Year Major Project • 2026
-            </p>
+            {loginRole === 'user' && (
+              <div className="text-center mt-5">
+                <button
+                  onClick={() => { setIsRegistering(!isRegistering); setAuthError(''); setAuthSuccess(''); }}
+                  className="text-xs text-blue-400 hover:underline font-semibold"
+                >
+                  {isRegistering ? 'Already have an account? Sign In' : "Don't have an account? Register"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
     );
   }
 
+  // Render User Side Screen
+  const renderUserSide = () => {
+    if (presentationMode === 'mobile') {
+      return (
+        <div className="min-h-screen bg-gray-100 dark:bg-[#070b13] flex flex-col items-center justify-center p-4">
+          <div className="mb-4 flex gap-2 bg-white dark:bg-slate-900/60 p-1 rounded-xl shadow border border-gray-200 dark:border-gray-800">
+            <button
+              onClick={() => setPresentationMode('mobile')}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white shadow"
+            >
+              <Smartphone className="w-3.5 h-3.5" /> Mobile Frame
+            </button>
+            <button
+              onClick={() => setPresentationMode('desktop')}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-400"
+            >
+              <Monitor className="w-3.5 h-3.5" /> Desktop Mode
+            </button>
+          </div>
+
+          <div className="w-[360px] h-[720px] bg-white dark:bg-[#0b0f19] border-[10px] border-gray-900 dark:border-slate-800 rounded-[42px] shadow-2xl relative overflow-hidden flex flex-col">
+            {/* Phone Top Speaker/Camera */}
+            <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-36 h-6 bg-gray-900 rounded-b-2xl z-50 flex items-center justify-center gap-1">
+              <div className="w-12 h-1 bg-slate-800 rounded-full"></div>
+              <div className="w-2.5 h-2.5 bg-slate-800 rounded-full"></div>
+            </div>
+
+            {/* Mobile Header status bar */}
+            <div className="h-10 bg-white dark:bg-[#0b0f19] border-b border-gray-100 dark:border-gray-850 px-6 pt-5 flex justify-between items-center text-[10px] text-gray-400">
+              <span className="font-bold">SafeScanner Mobile</span>
+              <div className="flex gap-1 items-center">
+                <span>5G</span>
+                <div className="w-5 h-2.5 bg-gray-300 dark:bg-slate-700 rounded-sm"></div>
+              </div>
+            </div>
+
+            {/* App Nav Header */}
+            <div className="p-4 flex justify-between items-center bg-white dark:bg-[#0b0f19]">
+              <div className="flex items-center gap-2">
+                <div className="bg-blue-600 p-1.5 rounded-xl text-white">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <span className="font-extrabold text-sm font-display tracking-tight text-gray-900 dark:text-white">Safe Scanner</span>
+              </div>
+              
+              <div className="flex gap-2">
+                <button
+                  onClick={handleLogout}
+                  className="text-gray-400 hover:text-red-500 transition p-1"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* App Content viewport */}
+            <div className="flex-1 overflow-y-auto px-4 pb-20 space-y-4">
+              {renderTabContent()}
+            </div>
+
+            {/* Mobile Navigation Tab bar */}
+            <div className="absolute bottom-0 left-0 right-0 h-16 bg-white dark:bg-[#0e1424] border-t border-gray-250 dark:border-gray-850/80 px-4 flex justify-around items-center z-40">
+              <button
+                onClick={() => setActiveTab('home')}
+                className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'home' ? 'text-blue-500' : 'text-gray-400 hover:text-gray-500'}`}
+              >
+                <Camera className="w-5 h-5" />
+                <span className="text-[9px] font-bold">Scan</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('history')}
+                className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'history' ? 'text-blue-500' : 'text-gray-400 hover:text-gray-500'}`}
+              >
+                <History className="w-5 h-5" />
+                <span className="text-[9px] font-bold">Logs</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('chat')}
+                className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'chat' ? 'text-blue-500' : 'text-gray-400 hover:text-gray-500'}`}
+              >
+                <MessageSquare className="w-5 h-5" />
+                <span className="text-[9px] font-bold">AI Bot</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('hub')}
+                className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'hub' ? 'text-blue-500' : 'text-gray-400 hover:text-gray-500'}`}
+              >
+                <BookOpen className="w-5 h-5" />
+                <span className="text-[9px] font-bold">Hub</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('settings')}
+                className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'settings' ? 'text-blue-500' : 'text-gray-400 hover:text-gray-500'}`}
+              >
+                <Settings className="w-5 h-5" />
+                <span className="text-[9px] font-bold">Settings</span>
+              </button>
+            </div>
+            
+            <div className="absolute bottom-1.5 left-1/2 transform -translate-x-1/2 w-28 h-1 bg-gray-900 dark:bg-slate-700 rounded-full z-50"></div>
+          </div>
+        </div>
+      );
+    } else {
+      // Desktop full-page web portal layout
+      return (
+        <div className="min-h-screen bg-gray-50 dark:bg-[#070b13] flex flex-col animate-fadeIn">
+          {/* Header Navigation */}
+          <header className="bg-white dark:bg-[#0e1424] border-b border-gray-200 dark:border-gray-800 px-6 py-4 flex justify-between items-center shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="bg-blue-600 p-2 rounded-2xl text-white shadow-md">
+                <ShieldAlert className="w-6 h-6" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold font-display text-gray-900 dark:text-white flex items-center gap-1.5">
+                  Safe Scanner
+                </h1>
+                <p className="text-[10px] tracking-wider uppercase text-blue-500 font-bold">{t('tagline')}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setPresentationMode('mobile')}
+                className="flex items-center gap-1.5 text-xs font-semibold bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 px-3 py-1.5 rounded-xl border border-gray-200 dark:border-gray-700 transition"
+              >
+                <Smartphone className="w-4 h-4 text-blue-500" /> Switch to Android App Frame
+              </button>
+
+              {currentUser && currentUser.role === 'admin' && (
+                <button
+                  onClick={() => setCurrentView('admin')}
+                  className="flex items-center gap-1 text-xs font-semibold bg-indigo-600/10 hover:bg-indigo-600/25 text-indigo-500 px-3.5 py-1.5 rounded-xl transition"
+                >
+                  <Shield className="w-3.5 h-3.5" /> Admin Panel
+                </button>
+              )}
+              
+              <button
+                onClick={handleLogout}
+                className="text-gray-400 hover:text-red-500 p-1.5 rounded-xl transition"
+                title="Log Out"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            </div>
+          </header>
+
+          {/* Desktop Dual-Pane Grid Layout */}
+          <main className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Sidebar Navigation */}
+            <div className="lg:col-span-3 bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 rounded-3xl p-4 flex flex-col gap-2 shadow-sm">
+              {[
+                { id: 'home', label: 'Dashboard & Scanner', icon: <Camera className="w-4 h-4" /> },
+                { id: 'history', label: t('history'), icon: <History className="w-4 h-4" /> },
+                { id: 'chat', label: t('assistant'), icon: <MessageSquare className="w-4 h-4" /> },
+                { id: 'hub', label: t('hub'), icon: <BookOpen className="w-4 h-4" /> },
+                { id: 'settings', label: t('profile'), icon: <Settings className="w-4 h-4" /> }
+              ].map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`flex items-center gap-3 text-sm font-semibold px-4 py-3 rounded-2xl transition ${
+                    activeTab === item.id
+                      ? 'bg-blue-600 text-white shadow shadow-blue-500/20'
+                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#161f33]'
+                  }`}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Desktop Dashboard Panel Viewport */}
+            <div className="lg:col-span-9 bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 rounded-3xl p-6 md:p-8 shadow-sm">
+              {renderTabContent()}
+            </div>
+          </main>
+        </div>
+      );
+    }
+  };
+
+  // Render Secure Admin Panel Screen
+  const renderAdminSide = () => {
+    // Rigid Security Lock - Block non-admin view escalation
+    if (!currentUser || currentUser.role !== 'admin') {
+      return renderUserSide();
+    }
+
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-[#070b13] flex flex-col font-sans">
+        
+        {/* Admin Header */}
+        <header className="bg-white dark:bg-[#0f1626] border-b border-gray-200/60 dark:border-gray-800/80 px-6 py-4 flex justify-between items-center shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="bg-indigo-600 p-2.5 rounded-2xl text-white shadow">
+              <Shield className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold font-display text-gray-900 dark:text-white flex items-center gap-2">
+                Safe Scanner Admin Console
+              </h1>
+              <p className="text-[10px] tracking-wider uppercase text-indigo-500 font-bold">Systems Security & Reports Dashboard</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-xl border border-gray-200 dark:border-gray-700">
+              {[
+                { id: 'dashboard', label: 'Dashboard' },
+                { id: 'reports', label: 'Reports' },
+                { id: 'blacklist', label: 'Blacklist' },
+                { id: 'merchants', label: 'Outlets' },
+                { id: 'logs', label: 'Audit Logs' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setAdminActiveTab(tab.id)}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${adminActiveTab === tab.id ? 'bg-indigo-600 text-white shadow' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => {
+                setCurrentView('home');
+                setPresentationMode('mobile');
+              }}
+              className="flex items-center gap-1.5 text-xs font-semibold bg-gray-150 dark:bg-slate-800 text-gray-700 dark:text-gray-300 px-3.5 py-1.5 rounded-xl border border-gray-200 dark:border-gray-700 transition hover:bg-gray-200"
+            >
+              <Smartphone className="w-4 h-4 text-blue-500" /> Return to User Portal
+            </button>
+            <button
+              onClick={handleLogout}
+              className="bg-red-500/10 hover:bg-red-500/20 text-red-500 font-semibold text-xs px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5"
+            >
+              <LogOut className="w-3.5 h-3.5" /> Logout
+            </button>
+          </div>
+        </header>
+
+        {/* Admin layout grid */}
+        <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-8">
+          
+          {/* STATS MATRIX CARDS */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { label: t('activeScans'), val: adminStats.totalScans, icon: <BarChart3 className="w-5 h-5 text-blue-500" /> },
+              { label: t('fraudDetected'), val: adminStats.threatsBlocked, icon: <AlertTriangle className="w-5 h-5 text-red-500" /> },
+              { label: t('verifiedMerchants'), val: adminStats.verifiedMerchants, icon: <CheckCircle2 className="w-5 h-5 text-emerald-500" /> },
+              { label: t('pendingReports'), val: adminStats.pendingReports, icon: <Users className="w-5 h-5 text-amber-500" /> }
+            ].map((stat, idx) => (
+              <div key={idx} className="bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 p-5 rounded-2xl shadow-sm flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">{stat.label}</span>
+                  <h4 className="text-2xl font-extrabold text-gray-900 dark:text-white mt-1 font-display">{stat.val}</h4>
+                </div>
+                <div className="bg-gray-100 dark:bg-[#161f33] p-3 rounded-xl">
+                  {stat.icon}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* ACTIVE TAB ROUTING FOR ADMIN */}
+          {adminActiveTab === 'dashboard' && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Chart Panel */}
+              <div className="lg:col-span-8 bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 p-6 rounded-3xl shadow-sm space-y-4">
+                <h3 className="font-bold text-base font-display text-gray-900 dark:text-white flex items-center gap-1.5">
+                  <BarChart3 className="w-5 h-5 text-indigo-500" /> Daily Fraud Prevention Trends
+                </h3>
+                <div className="h-[220px] w-full bg-gray-50 dark:bg-[#0c1220] rounded-2xl border border-gray-200/40 dark:border-gray-800/60 p-4 flex flex-col justify-between relative overflow-hidden">
+                  <svg className="absolute inset-0 w-full h-[180px] mt-6" viewBox="0 0 100 100" preserveAspectRatio="none">
+                    <path d="M 0 100 Q 20 60 40 80 T 80 40 T 100 20 L 100 100 Z" fill="url(#chartGrad)" opacity="0.15"></path>
+                    <path d="M 0 100 Q 20 60 40 80 T 80 40 T 100 20" fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round"></path>
+                    <line x1="0" y1="20" x2="100" y2="20" stroke="rgba(150,150,150,0.1)" strokeWidth="0.5"></line>
+                    <line x1="0" y1="50" x2="100" y2="50" stroke="rgba(150,150,150,0.1)" strokeWidth="0.5"></line>
+                    <line x1="0" y1="80" x2="100" y2="80" stroke="rgba(150,150,150,0.1)" strokeWidth="0.5"></line>
+                    <defs>
+                      <linearGradient id="chartGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stopColor="#6366f1" />
+                        <stop offset="100%" stopColor="#0c1220" stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                  <div className="absolute left-3 top-4 flex flex-col gap-1 text-[8px] text-gray-400 font-bold">
+                    <span>100 Scans</span>
+                    <span>50 Scans</span>
+                    <span>0 Scans</span>
+                  </div>
+                  <div className="mt-auto flex justify-between text-[9px] text-gray-400 font-semibold px-2 z-10">
+                    <span>Mon</span>
+                    <span>Tue</span>
+                    <span>Wed</span>
+                    <span>Thu</span>
+                    <span>Fri</span>
+                    <span>Sat (Today)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Hotspots Panel */}
+              <div className="lg:col-span-4 bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 p-6 rounded-3xl shadow-sm space-y-4">
+                <h3 className="font-bold text-base font-display text-gray-900 dark:text-white flex items-center gap-1.5">
+                  <MapPin className="w-5 h-5 text-red-500" /> Regional Hotspots
+                </h3>
+                <div className="space-y-3">
+                  {[
+                    { region: "Mumbai, MH", fraudCases: 8, severity: "High Risk" },
+                    { region: "New Delhi, DL", fraudCases: 5, severity: "Medium Risk" },
+                    { region: "Bengaluru, KA", fraudCases: 2, severity: "Low Risk" },
+                  ].map((spot, idx) => (
+                    <div key={idx} className="flex justify-between items-center p-3.5 bg-gray-50 dark:bg-[#0c1220] rounded-xl border border-gray-100 dark:border-gray-800">
+                      <div>
+                        <h5 className="text-xs font-bold">{spot.region}</h5>
+                        <span className="text-[10px] text-gray-400">{spot.fraudCases} Reported Scams</span>
+                      </div>
+                      <span className={`text-[9px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full border ${
+                        spot.severity === 'High Risk'
+                          ? 'bg-red-500/10 text-red-500 border-red-500/20'
+                          : spot.severity === 'Medium Risk'
+                          ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                          : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                      }`}>
+                        {spot.severity}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {adminActiveTab === 'reports' && (
+            <div className="bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 p-6 rounded-3xl shadow-sm space-y-4">
+              <h3 className="font-bold text-base font-display text-gray-900 dark:text-white flex items-center gap-1.5">
+                <FileText className="w-5 h-5 text-amber-500" /> Pending Community Reports ({adminReports.filter(r => r.status === 'pending').length})
+              </h3>
+              <div className="space-y-4">
+                {adminReports.map((rep) => (
+                  <div key={rep.id || rep._id} className="p-4 bg-gray-50 dark:bg-[#0c1220] rounded-2xl border border-gray-100 dark:border-gray-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold">{rep.merchantName}</span>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold ${
+                          rep.status === 'pending' ? 'bg-amber-500/10 text-amber-500' : rep.status === 'approved' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-gray-500/10 text-gray-400'
+                        }`}>{rep.status}</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 font-mono">{rep.upiId}</p>
+                      <p className="text-xs text-gray-600 dark:text-gray-300 leading-normal">{rep.reason}</p>
+                      <span className="text-[9px] text-gray-500">Reported By: {rep.reportedBy || 'Anonymous'}</span>
+                    </div>
+                    {rep.status === 'pending' && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleReviewReport(rep.id || rep._id, 'approve')}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl transition flex items-center gap-1"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Approve
+                        </button>
+                        <button
+                          onClick={() => handleReviewReport(rep.id || rep._id, 'reject')}
+                          className="bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold text-xs px-3 py-1.5 rounded-xl border border-red-500/20 transition flex items-center gap-1"
+                        >
+                          <XCircle className="w-3.5 h-3.5" /> Dismiss
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {adminReports.length === 0 && (
+                  <p className="text-xs text-gray-400 text-center py-8">No user reports submitted yet.</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {adminActiveTab === 'blacklist' && (
+            <div className="bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 p-6 rounded-3xl shadow-sm space-y-4">
+              <h3 className="font-bold text-base font-display text-gray-900 dark:text-white flex items-center gap-1.5">
+                <ShieldAlert className="w-5 h-5 text-red-500" /> Active UPI Blacklist Registry
+              </h3>
+              <form onSubmit={handleAddBlacklist} className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Enter UPI ID to blacklist (e.g. thief@paytm)..."
+                  value={newBlacklistUpi}
+                  onChange={(e) => setNewBlacklistUpi(e.target.value)}
+                  className="flex-1 text-xs bg-gray-50 dark:bg-[#0c1220] border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2.5 outline-none"
+                />
+                <button
+                  type="submit"
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-5 rounded-xl flex items-center gap-1 transition shadow"
+                >
+                  <Plus className="w-4 h-4" /> Add Record
+                </button>
+              </form>
+              <div className="space-y-2">
+                {adminBlacklist.map((upi, idx) => (
+                  <div key={idx} className="flex justify-between items-center p-3 bg-gray-50 dark:bg-[#0c1220] rounded-xl border border-gray-100 dark:border-gray-800">
+                    <span className="text-xs font-mono text-gray-700 dark:text-gray-300 font-semibold">{upi}</span>
+                    <button
+                      onClick={() => handleRemoveBlacklist(upi)}
+                      className="text-gray-400 hover:text-red-500 transition p-1"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {adminBlacklist.length === 0 && (
+                  <p className="text-xs text-gray-400 text-center py-8">No records in the blacklist registry.</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {adminActiveTab === 'merchants' && (
+            <div className="bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 p-6 rounded-3xl shadow-sm space-y-4">
+              <h3 className="font-bold text-base font-display text-gray-900 dark:text-white flex items-center gap-1.5">
+                <CheckCircle2 className="w-5 h-5 text-emerald-500" /> Verified Merchant Registry ({adminMerchants.length})
+              </h3>
+              <form onSubmit={handleAddMerchant} className="grid grid-cols-2 md:grid-cols-5 gap-3 bg-gray-50 dark:bg-[#0c1220] p-4 rounded-2xl border border-gray-150 dark:border-gray-800">
+                <input
+                  type="text"
+                  placeholder="UPI ID (e.g. outlet@sbi)"
+                  value={newMerchantUpi}
+                  onChange={(e) => setNewMerchantUpi(e.target.value)}
+                  className="text-xs bg-white dark:bg-[#121929] border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2.5 outline-none"
+                />
+                <input
+                  type="text"
+                  placeholder="Outlet/Merchant Name"
+                  value={newMerchantName}
+                  onChange={(e) => setNewMerchantName(e.target.value)}
+                  className="text-xs bg-white dark:bg-[#121929] border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2.5 outline-none"
+                />
+                <input
+                  type="number"
+                  placeholder="Trust Score (0-100)"
+                  value={newMerchantScore}
+                  onChange={(e) => setNewMerchantScore(e.target.value)}
+                  className="text-xs bg-white dark:bg-[#121929] border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2.5 outline-none"
+                />
+                <select
+                  value={newMerchantCategory}
+                  onChange={(e) => setNewMerchantCategory(e.target.value)}
+                  className="text-xs bg-white dark:bg-[#121929] border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2.5 outline-none"
+                >
+                  <option value="Retail">Retail</option>
+                  <option value="Food & Beverage">Food & Beverage</option>
+                  <option value="Supermarket">Supermarket</option>
+                  <option value="Assistance">Assistance</option>
+                </select>
+                <button
+                  type="submit"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 rounded-xl transition shadow flex items-center justify-center gap-1 col-span-2 md:col-span-1"
+                >
+                  <Plus className="w-4 h-4" /> Add Outlet
+                </button>
+              </form>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-100 dark:border-gray-800 text-gray-400 font-bold uppercase">
+                      <th className="py-3 px-4">Merchant Outlet</th>
+                      <th className="py-3 px-4">UPI Address</th>
+                      <th className="py-3 px-4 text-center">Safety Rating</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Registry Loc</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-gray-700 dark:text-gray-300">
+                    {adminMerchants.map((merchant, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-slate-900/40">
+                        <td className="py-3.5 px-4 font-bold">{merchant.name}</td>
+                        <td className="py-3.5 px-4 font-mono text-blue-500">{merchant.upiId}</td>
+                        <td className="py-3.5 px-4 text-center">
+                          <span className={`font-bold px-2 py-0.5 rounded-full border ${
+                            merchant.trustScore >= 80 ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                          }`}>{merchant.trustScore}%</span>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold ${
+                            merchant.isVerified ? 'bg-emerald-500/10 text-emerald-500' : 'bg-gray-500/10 text-gray-400'
+                          }`}>{merchant.isVerified ? 'VERIFIED' : 'UNVERIFIED'}</span>
+                        </td>
+                        <td className="py-3.5 px-4">{merchant.location ? merchant.location.name : 'Central Database'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {adminActiveTab === 'logs' && (
+            <div className="bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 p-6 rounded-3xl shadow-sm space-y-4">
+              <h3 className="font-bold text-base font-display text-gray-900 dark:text-white flex items-center gap-1.5">
+                <FileText className="w-5 h-5 text-indigo-500" /> System Security Audit Logs
+              </h3>
+              <p className="text-xs text-gray-400">Chronological history of security events, administrative updates, and authentication audits.</p>
+              
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-150 dark:border-gray-850 text-gray-400 font-bold uppercase">
+                      <th className="py-3 px-4">Timestamp</th>
+                      <th className="py-3 px-4">Event / Action</th>
+                      <th className="py-3 px-4">Performed By</th>
+                      <th className="py-3 px-4">Details</th>
+                      <th className="py-3 px-4">IP Address</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-850 text-gray-700 dark:text-gray-300">
+                    {adminAuditLogs.map((log) => (
+                      <tr key={log._id || log.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-900/40">
+                        <td className="py-3 px-4 text-gray-400">{new Date(log.timestamp).toLocaleString()}</td>
+                        <td className="py-3 px-4">
+                          <span className={`font-bold px-2 py-0.5 rounded-full ${
+                            log.action.includes('Failed') || log.action.includes('Lockout') || log.action.includes('Unauthorized')
+                              ? 'bg-red-500/10 text-red-400'
+                              : 'bg-indigo-500/10 text-indigo-400'
+                          }`}>{log.action}</span>
+                        </td>
+                        <td className="py-3 px-4 font-semibold">{log.performedBy}</td>
+                        <td className="py-3 px-4 max-w-xs truncate" title={log.details}>{log.details}</td>
+                        <td className="py-3 px-4 font-mono text-[10px] text-gray-500">{log.ipAddress}</td>
+                      </tr>
+                    ))}
+                    {adminAuditLogs.length === 0 && (
+                      <tr>
+                        <td colSpan="5" className="text-center py-8 text-gray-400">No logs found on server.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+    );
+  };
+
   // Helper function to render mobile navigation tab content
   const renderTabContent = () => {
     switch (activeTab) {
       case 'home':
         return (
-          <div className="space-y-5">
+          <div className="space-y-5 animate-fadeIn">
             {/* User Greeting Block */}
             <div className="flex justify-between items-start">
               <div>
@@ -588,7 +1132,6 @@ const App = () => {
                 <div className="mt-8 flex justify-center">
                   <button
                     onClick={() => {
-                      // Trigger scanner page or slide
                       const mockScannerResult = document.getElementById("mock-scanner-container");
                       if (mockScannerResult) mockScannerResult.scrollIntoView({ behavior: 'smooth' });
                     }}
@@ -620,7 +1163,7 @@ const App = () => {
               <div className="space-y-3">
                 {scanHistory.slice(0, 3).map((scan) => (
                   <button
-                    key={scan.id}
+                    key={scan.id || scan._id}
                     onClick={() => {
                       setSelectedScanDetail(scan);
                       setScanDetailModalOpen(true);
@@ -635,7 +1178,7 @@ const App = () => {
                       <span className="text-[9px] text-gray-400">{new Date(scan.timestamp).toLocaleDateString()}</span>
                     </div>
                     <div className="flex items-center gap-2.5">
-                      <span className="text-xs font-bold text-gray-900 dark:text-white">₹{scan.amount}</span>
+                      {scan.amount > 0 && <span className="text-xs font-bold text-gray-900 dark:text-white">₹{scan.amount}</span>}
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                         scan.riskLevel === 'high'
                           ? 'bg-red-500/10 text-red-500 border-red-500/20'
@@ -657,10 +1200,8 @@ const App = () => {
         );
       case 'history':
         return (
-          <div className="space-y-5">
+          <div className="space-y-5 animate-fadeIn">
             <h3 className="text-xl font-bold font-display text-gray-900 dark:text-white">{t('history')}</h3>
-
-            {/* Filter controls */}
             <div className="flex flex-col gap-3">
               <input
                 type="text"
@@ -686,11 +1227,10 @@ const App = () => {
               </div>
             </div>
 
-            {/* List */}
             <div className="space-y-3">
               {filteredHistory.map((scan) => (
                 <button
-                  key={scan.id}
+                  key={scan.id || scan._id}
                   onClick={() => {
                     setSelectedScanDetail(scan);
                     setScanDetailModalOpen(true);
@@ -726,14 +1266,14 @@ const App = () => {
         );
       case 'chat':
         return (
-          <div className="space-y-4">
+          <div className="space-y-4 animate-fadeIn">
             <h3 className="text-xl font-bold font-display text-gray-900 dark:text-white">{t('assistant')}</h3>
             <SecurityChat />
           </div>
         );
       case 'hub':
         return (
-          <div className="space-y-5">
+          <div className="space-y-5 animate-fadeIn">
             <h3 className="text-xl font-bold font-display text-gray-900 dark:text-white">{t('hub')}</h3>
 
             {/* Quiz Section */}
@@ -803,14 +1343,14 @@ const App = () => {
         );
       case 'settings':
         return (
-          <div className="space-y-5">
+          <div className="space-y-5 animate-fadeIn">
             <h3 className="text-xl font-bold font-display text-gray-900 dark:text-white">{t('profile')}</h3>
             
             {/* Preferences */}
             <div className="bg-white dark:bg-[#121929] border border-gray-200/70 dark:border-gray-800/80 rounded-2xl p-4 space-y-4">
               <h4 className="font-bold text-sm font-display text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-800 pb-2">Preferences</h4>
               
-              {/* Language Selection */}
+              {/* Language */}
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-600 dark:text-gray-400 font-medium flex items-center gap-1.5">
                   <Globe className="w-4 h-4 text-blue-500" /> Language
@@ -845,7 +1385,7 @@ const App = () => {
                 </button>
               </div>
 
-              {/* Voice alerts */}
+              {/* Voice Alerts */}
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-600 dark:text-gray-400 font-medium flex items-center gap-1.5">
                   {voiceEnabled ? <Volume2 className="w-4 h-4 text-emerald-500" /> : <VolumeX className="w-4 h-4 text-gray-400" />} {t('voiceAlerts')}
@@ -869,9 +1409,8 @@ const App = () => {
               <LogOut className="w-4 h-4" /> {t('logout')}
             </button>
 
-            {/* Details badge */}
             <div className="text-center text-[10px] text-gray-400/80 mt-8 font-medium">
-              Safe Scanner v1.0.0 • AI-Powered QR Verification
+              Safe Scanner v1.1.0 • Security Hardened
             </div>
           </div>
         );
@@ -880,515 +1419,12 @@ const App = () => {
     }
   };
 
-  // Render User Side Screen
-  const renderUserSide = () => {
-    if (presentationMode === 'mobile') {
-      // Android Phone Mockup Frame
-      return (
-        <div className="min-h-screen bg-gray-100 dark:bg-[#070b13] flex flex-col items-center justify-center p-4">
-          
-          {/* Top layout switcher */}
-          <div className="mb-4 flex gap-2 bg-white dark:bg-slate-900/60 p-1 rounded-xl shadow border border-gray-200 dark:border-gray-800">
-            <button
-              onClick={() => setPresentationMode('mobile')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition ${presentationMode === 'mobile' ? 'bg-blue-600 text-white shadow' : 'text-gray-500'}`}
-            >
-              <Smartphone className="w-3.5 h-3.5" /> Mobile Frame
-            </button>
-            <button
-              onClick={() => setPresentationMode('desktop')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition ${presentationMode === 'desktop' ? 'bg-blue-600 text-white shadow' : 'text-gray-500'}`}
-            >
-              <Monitor className="w-3.5 h-3.5" /> Desktop Mode
-            </button>
-            <button
-              onClick={() => {
-                setCurrentUser({ username: 'Administrator', role: 'admin' });
-                setCurrentView('admin');
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-indigo-500 hover:bg-indigo-500/10 transition"
-            >
-              <Shield className="w-3.5 h-3.5" /> Bypass to Admin
-            </button>
-          </div>
-
-          {/* Android Mobile mockup bezel */}
-          <div className="relative mx-auto w-[375px] h-[780px] bg-white dark:bg-[#080d19] border-[10px] border-gray-900 dark:border-slate-800 rounded-[48px] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.4)] overflow-hidden flex flex-col">
-            
-            {/* Phone Notch/Dynamic Island */}
-            <div className="absolute top-2 left-1/2 transform -translate-x-1/2 w-28 h-6 bg-gray-900 rounded-full z-50 flex items-center justify-center">
-              <div className="w-3.5 h-3.5 rounded-full bg-slate-800 border border-slate-700/50 absolute left-2.5"></div>
-              <div className="w-1.5 h-1.5 rounded-full bg-blue-500/60 absolute right-6"></div>
-            </div>
-
-            {/* Status bar */}
-            <div className="h-10 bg-white/80 dark:bg-[#080d19]/80 backdrop-blur-md px-6 pt-3 flex justify-between items-center text-[10px] font-bold z-40 text-gray-800 dark:text-gray-300">
-              <span>9:41 AM</span>
-              <div className="flex items-center gap-1.5">
-                <span>5G</span>
-                <div className="w-4 h-2.5 bg-gray-800 dark:bg-gray-400 rounded-sm relative">
-                  <div className="w-0.5 h-1 bg-gray-800 dark:bg-gray-400 absolute right-[-2px] top-[2px] rounded-sm"></div>
-                </div>
-              </div>
-            </div>
-
-            {/* Main Application Container */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 pb-20 select-none">
-              {renderTabContent()}
-            </div>
-
-            {/* Bottom Android Navigation bar */}
-            <div className="absolute bottom-0 left-0 right-0 h-16 bg-white/95 dark:bg-[#0c1222]/95 border-t border-gray-100 dark:border-gray-800/80 backdrop-blur-md px-6 flex justify-around items-center z-40">
-              <button
-                onClick={() => setActiveTab('home')}
-                className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'home' ? 'text-blue-500' : 'text-gray-400 hover:text-gray-500'}`}
-              >
-                <Camera className="w-5 h-5" />
-                <span className="text-[9px] font-bold">Scanner</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('history')}
-                className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'history' ? 'text-blue-500' : 'text-gray-400 hover:text-gray-500'}`}
-              >
-                <History className="w-5 h-5" />
-                <span className="text-[9px] font-bold">History</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('chat')}
-                className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'chat' ? 'text-blue-500' : 'text-gray-400 hover:text-gray-500'}`}
-              >
-                <MessageSquare className="w-5 h-5" />
-                <span className="text-[9px] font-bold">AI Bot</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('hub')}
-                className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'hub' ? 'text-blue-500' : 'text-gray-400 hover:text-gray-500'}`}
-              >
-                <BookOpen className="w-5 h-5" />
-                <span className="text-[9px] font-bold">Hub</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('settings')}
-                className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'settings' ? 'text-blue-500' : 'text-gray-400 hover:text-gray-500'}`}
-              >
-                <Settings className="w-5 h-5" />
-                <span className="text-[9px] font-bold">Settings</span>
-              </button>
-            </div>
-            
-            {/* Screen Home Notch */}
-            <div className="absolute bottom-1.5 left-1/2 transform -translate-x-1/2 w-28 h-1 bg-gray-900 dark:bg-slate-700 rounded-full z-50"></div>
-          </div>
-        </div>
-      );
-    } else {
-      // Desktop full-page web portal layout
-      return (
-        <div className="min-h-screen bg-gray-50 dark:bg-[#070b13] flex flex-col">
-          {/* Header Navigation */}
-          <header className="bg-white dark:bg-[#0e1424] border-b border-gray-200 dark:border-gray-800 px-6 py-4 flex justify-between items-center shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="bg-blue-600 p-2 rounded-2xl text-white shadow-md">
-                <ShieldAlert className="w-6 h-6" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold font-display text-gray-900 dark:text-white flex items-center gap-1.5">
-                  Safe Scanner
-                </h1>
-                <p className="text-[10px] tracking-wider uppercase text-blue-500 font-bold">{t('tagline')}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => setPresentationMode('mobile')}
-                className="flex items-center gap-1.5 text-xs font-semibold bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 px-3 py-1.5 rounded-xl border border-gray-200 dark:border-gray-700 transition"
-              >
-                <Smartphone className="w-4 h-4 text-blue-500" /> Switch to Android App Frame
-              </button>
-
-              <button
-                onClick={() => {
-                  setCurrentUser({ username: 'Administrator', role: 'admin' });
-                  setCurrentView('admin');
-                }}
-                className="flex items-center gap-1 text-xs font-semibold bg-indigo-600/10 hover:bg-indigo-600/25 text-indigo-500 px-3.5 py-1.5 rounded-xl transition"
-              >
-                <Shield className="w-3.5 h-3.5" /> Admin Panel
-              </button>
-              
-              <button
-                onClick={handleLogout}
-                className="text-gray-400 hover:text-red-500 p-1.5 rounded-xl transition"
-                title="Log Out"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
-            </div>
-          </header>
-
-          {/* Desktop Dual-Pane Grid Layout */}
-          <main className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            
-            {/* Sidebar Navigation */}
-            <div className="lg:col-span-3 bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 rounded-3xl p-4 flex flex-col gap-2 shadow-sm">
-              {[
-                { id: 'home', label: 'Dashboard & Scanner', icon: <Camera className="w-4 h-4" /> },
-                { id: 'history', label: t('history'), icon: <History className="w-4 h-4" /> },
-                { id: 'chat', label: t('assistant'), icon: <MessageSquare className="w-4 h-4" /> },
-                { id: 'hub', label: t('hub'), icon: <BookOpen className="w-4 h-4" /> },
-                { id: 'settings', label: t('profile'), icon: <Settings className="w-4 h-4" /> }
-              ].map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`flex items-center gap-3 text-sm font-semibold px-4 py-3 rounded-2xl transition ${
-                    activeTab === item.id
-                      ? 'bg-blue-600 text-white shadow shadow-blue-500/20'
-                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#161f33]'
-                  }`}
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Desktop Dashboard Panel Viewport */}
-            <div className="lg:col-span-9 bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 rounded-3xl p-6 md:p-8 shadow-sm">
-              {renderTabContent()}
-            </div>
-          </main>
-        </div>
-      );
-    }
-  };
-
-  // Render Admin Panel Screen
-  const renderAdminSide = () => {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-[#070b13] flex flex-col font-sans">
-        
-        {/* Admin Header */}
-        <header className="bg-white dark:bg-[#0f1626] border-b border-gray-200/60 dark:border-gray-800/80 px-6 py-4 flex justify-between items-center shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="bg-indigo-600 p-2.5 rounded-2xl text-white shadow">
-              <Shield className="w-6 h-6" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold font-display text-gray-900 dark:text-white flex items-center gap-2">
-                Safe Scanner Admin Console
-              </h1>
-              <p className="text-[10px] tracking-wider uppercase text-indigo-500 font-bold">Systems Security & Reports Dashboard</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => {
-                setCurrentView('home');
-                setPresentationMode('mobile');
-              }}
-              className="flex items-center gap-1.5 text-xs font-semibold bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 px-3.5 py-1.5 rounded-xl border border-gray-200 dark:border-gray-700 transition"
-            >
-              <Smartphone className="w-4 h-4 text-blue-500" /> Return to User Portal
-            </button>
-            <button
-              onClick={handleLogout}
-              className="bg-red-500/10 hover:bg-red-500/20 text-red-500 font-semibold text-xs px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5"
-            >
-              <LogOut className="w-3.5 h-3.5" /> Logout
-            </button>
-          </div>
-        </header>
-
-        {/* Admin layout grid */}
-        <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-8">
-          
-          {/* STATS MATRIX CARDS */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              { label: t('activeScans'), val: adminStats.totalScans, icon: <BarChart3 className="w-5 h-5 text-blue-500" /> },
-              { label: t('fraudDetected'), val: adminStats.threatsBlocked, icon: <AlertTriangle className="w-5 h-5 text-red-500" /> },
-              { label: t('verifiedMerchants'), val: adminStats.verifiedMerchants, icon: <CheckCircle2 className="w-5 h-5 text-emerald-500" /> },
-              { label: t('pendingReports'), val: adminStats.pendingReports, icon: <Users className="w-5 h-5 text-amber-500" /> }
-            ].map((stat, idx) => (
-              <div key={idx} className="bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 p-5 rounded-2xl shadow-sm flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">{stat.label}</span>
-                  <h4 className="text-2xl font-extrabold text-gray-900 dark:text-white mt-1 font-display">{stat.val}</h4>
-                </div>
-                <div className="bg-gray-100 dark:bg-[#161f33] p-3 rounded-xl">
-                  {stat.icon}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* TWO PANEL ANALYTICS & REPORTS GRID */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            
-            {/* Chart Panel */}
-            <div className="lg:col-span-8 bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 p-6 rounded-3xl shadow-sm space-y-4">
-              <h3 className="font-bold text-base font-display text-gray-900 dark:text-white flex items-center gap-1.5">
-                <BarChart3 className="w-5 h-5 text-indigo-500" /> Daily Fraud Prevention Trends
-              </h3>
-              
-              {/* Dummy SVG Area Chart for stunning Major Project analytics visuals */}
-              <div className="h-[220px] w-full bg-gray-50 dark:bg-[#0c1220] rounded-2xl border border-gray-200/40 dark:border-gray-800/60 p-4 flex flex-col justify-between relative overflow-hidden">
-                <svg className="absolute inset-0 w-full h-[180px] mt-6" viewBox="0 0 100 100" preserveAspectRatio="none">
-                  {/* Fill area */}
-                  <path d="M 0 100 Q 20 60 40 80 T 80 40 T 100 20 L 100 100 Z" fill="url(#chartGrad)" opacity="0.15"></path>
-                  {/* Line */}
-                  <path d="M 0 100 Q 20 60 40 80 T 80 40 T 100 20" fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round"></path>
-                  
-                  {/* Grid Lines */}
-                  <line x1="0" y1="20" x2="100" y2="20" stroke="rgba(150,150,150,0.1)" strokeWidth="0.5"></line>
-                  <line x1="0" y1="50" x2="100" y2="50" stroke="rgba(150,150,150,0.1)" strokeWidth="0.5"></line>
-                  <line x1="0" y1="80" x2="100" y2="80" stroke="rgba(150,150,150,0.1)" strokeWidth="0.5"></line>
-                  
-                  <defs>
-                    <linearGradient id="chartGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                      <stop offset="0%" stopColor="#6366f1" />
-                      <stop offset="100%" stopColor="#0c1220" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
-                </svg>
-                
-                {/* Y Axis Legend */}
-                <div className="absolute left-3 top-4 flex flex-col gap-1 text-[8px] text-gray-400 font-bold">
-                  <span>100 Scans</span>
-                  <span>50 Scans</span>
-                  <span>0 Scans</span>
-                </div>
-
-                {/* X Axis Labels */}
-                <div className="mt-auto flex justify-between text-[9px] text-gray-400 font-semibold px-2 z-10">
-                  <span>Mon</span>
-                  <span>Tue</span>
-                  <span>Wed</span>
-                  <span>Thu</span>
-                  <span>Fri</span>
-                  <span>Sat (Today)</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Hotspots Panel */}
-            <div className="lg:col-span-4 bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 p-6 rounded-3xl shadow-sm space-y-4">
-              <h3 className="font-bold text-base font-display text-gray-900 dark:text-white flex items-center gap-1.5">
-                <MapPin className="w-5 h-5 text-red-500" /> Regional Hotspots
-              </h3>
-              
-              <div className="space-y-3">
-                {[
-                  { region: "Mumbai, MH", fraudCases: 8, severity: "High Risk" },
-                  { region: "New Delhi, DL", fraudCases: 5, severity: "Medium Risk" },
-                  { region: "Bengaluru, KA", fraudCases: 2, severity: "Low Risk" },
-                ].map((spot, idx) => (
-                  <div key={idx} className="flex justify-between items-center p-3.5 bg-gray-50 dark:bg-[#0c1220] rounded-xl border border-gray-100 dark:border-gray-800">
-                    <div>
-                      <h5 className="text-xs font-bold">{spot.region}</h5>
-                      <span className="text-[10px] text-gray-400">{spot.fraudCases} Reported Scams</span>
-                    </div>
-                    <span className={`text-[9px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full border ${
-                      spot.severity === 'High Risk'
-                        ? 'bg-red-500/10 text-red-500 border-red-500/20'
-                        : spot.severity === 'Medium Risk'
-                        ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-                        : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                    }`}>
-                      {spot.severity}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* DATABASE & REGISTRY TABLES BLOCK */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            
-            {/* User Reports Review */}
-            <div className="bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 p-6 rounded-3xl shadow-sm space-y-4">
-              <div className="flex justify-between items-center border-b border-gray-100 dark:border-gray-800 pb-3">
-                <h3 className="font-bold text-base font-display text-gray-900 dark:text-white flex items-center gap-1.5">
-                  <FileText className="w-5 h-5 text-amber-500" /> Pending Community Reports ({adminReports.filter(r => r.status === 'pending').length})
-                </h3>
-              </div>
-              
-              <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
-                {adminReports.map((rep) => (
-                  <div key={rep.id} className="p-4 bg-gray-50 dark:bg-[#0c1220] rounded-2xl border border-gray-100 dark:border-gray-850 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold">{rep.merchantName}</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold ${
-                          rep.status === 'pending' ? 'bg-amber-500/10 text-amber-500' : rep.status === 'approved' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-gray-500/10 text-gray-400'
-                        }`}>{rep.status}</span>
-                      </div>
-                      <p className="text-[10px] text-gray-400 font-mono">{rep.upiId}</p>
-                      <p className="text-xs text-gray-600 dark:text-gray-300 leading-normal">{rep.reason}</p>
-                    </div>
-                    
-                    {rep.status === 'pending' && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleReviewReport(rep.id, 'approve')}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl transition flex items-center gap-1"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Verify
-                        </button>
-                        <button
-                          onClick={() => handleReviewReport(rep.id, 'reject')}
-                          className="bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold text-xs px-3 py-1.5 rounded-xl border border-red-500/20 transition flex items-center gap-1"
-                        >
-                          <XCircle className="w-3.5 h-3.5" /> Dismiss
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {adminReports.length === 0 && (
-                  <p className="text-xs text-gray-400 text-center py-8">No user reports submitted yet.</p>
-                )}
-              </div>
-            </div>
-
-            {/* Blacklist Management & Database */}
-            <div className="bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 p-6 rounded-3xl shadow-sm space-y-4">
-              <div className="flex justify-between items-center border-b border-gray-100 dark:border-gray-800 pb-3">
-                <h3 className="font-bold text-base font-display text-gray-900 dark:text-white flex items-center gap-1.5">
-                  <ShieldAlert className="w-5 h-5 text-red-500" /> Active UPI Blacklist ({adminBlacklist.length})
-                </h3>
-              </div>
-
-              {/* Add Blacklist input */}
-              <form onSubmit={handleAddBlacklist} className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Enter UPI ID to blacklist (e.g. thief@paytm)..."
-                  value={newBlacklistUpi}
-                  onChange={(e) => setNewBlacklistUpi(e.target.value)}
-                  className="flex-1 text-xs bg-gray-50 dark:bg-[#0c1220] border border-gray-200 dark:border-gray-850 rounded-xl px-3 py-2 outline-none"
-                />
-                <button
-                  type="submit"
-                  className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-4 rounded-xl flex items-center gap-1 transition shadow"
-                >
-                  <Plus className="w-4 h-4" /> Add
-                </button>
-              </form>
-
-              <div className="max-h-[220px] overflow-y-auto pr-1 space-y-2">
-                {adminBlacklist.map((upi, idx) => (
-                  <div key={idx} className="flex justify-between items-center p-3 bg-gray-50/70 dark:bg-[#0c1220] rounded-xl border border-gray-100 dark:border-gray-850">
-                    <span className="text-xs font-mono text-gray-700 dark:text-gray-300 font-semibold">{upi}</span>
-                    <button
-                      onClick={() => handleRemoveBlacklist(upi)}
-                      className="text-gray-400 hover:text-red-500 transition p-1"
-                      title="Remove from Blacklist"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* REGISTERED MERCHANTS VIEW */}
-          <div className="bg-white dark:bg-[#0e1424] border border-gray-200/80 dark:border-gray-800/80 p-6 rounded-3xl shadow-sm space-y-4">
-            <h3 className="font-bold text-base font-display text-gray-900 dark:text-white flex items-center gap-1.5">
-              <CheckCircle2 className="w-5 h-5 text-emerald-500" /> Verified Merchant Registry ({adminMerchants.length})
-            </h3>
-            
-            {/* Add merchant form inline */}
-            <form onSubmit={handleAddMerchant} className="grid grid-cols-2 md:grid-cols-5 gap-3 bg-gray-50 dark:bg-[#0c1220] p-4 rounded-2xl border border-gray-150 dark:border-gray-850">
-              <input
-                type="text"
-                placeholder="UPI ID (e.g. outlet@sbi)"
-                value={newMerchantUpi}
-                onChange={(e) => setNewMerchantUpi(e.target.value)}
-                className="text-xs bg-white dark:bg-[#121929] border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2.5 outline-none"
-              />
-              <input
-                type="text"
-                placeholder="Outlet/Merchant Name"
-                value={newMerchantName}
-                onChange={(e) => setNewMerchantName(e.target.value)}
-                className="text-xs bg-white dark:bg-[#121929] border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2.5 outline-none"
-              />
-              <input
-                type="number"
-                placeholder="Trust Score (0-100)"
-                value={newMerchantScore}
-                onChange={(e) => setNewMerchantScore(e.target.value)}
-                className="text-xs bg-white dark:bg-[#121929] border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2.5 outline-none"
-              />
-              <select
-                value={newMerchantCategory}
-                onChange={(e) => setNewMerchantCategory(e.target.value)}
-                className="text-xs bg-white dark:bg-[#121929] border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2.5 outline-none"
-              >
-                <option value="Retail">Retail</option>
-                <option value="Food & Beverage">Food & Beverage</option>
-                <option value="Supermarket">Supermarket</option>
-                <option value="Assistance">Assistance</option>
-              </select>
-              <button
-                type="submit"
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 rounded-xl transition shadow flex items-center justify-center gap-1 col-span-2 md:col-span-1"
-              >
-                <Plus className="w-4 h-4" /> Add Outlet
-              </button>
-            </form>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-gray-100 dark:border-gray-800 text-gray-400 font-bold uppercase">
-                    <th className="py-3 px-4">Merchant Outlet</th>
-                    <th className="py-3 px-4">UPI Address</th>
-                    <th className="py-3 px-4 text-center">Safety Rating</th>
-                    <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Registry Loc</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-800/80 text-gray-700 dark:text-gray-300">
-                  {adminMerchants.map((merchant, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-slate-900/40">
-                      <td className="py-3.5 px-4 font-bold">{merchant.name}</td>
-                      <td className="py-3.5 px-4 font-mono text-blue-500">{merchant.upiId}</td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className={`font-bold px-2 py-0.5 rounded-full border ${
-                          merchant.trustScore >= 80 ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-                        }`}>{merchant.trustScore}%</span>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold ${
-                          merchant.isVerified ? 'bg-emerald-500/10 text-emerald-500' : 'bg-gray-500/10 text-gray-400'
-                        }`}>{merchant.isVerified ? 'VERIFIED' : 'UNVERIFIED'}</span>
-                      </td>
-                      <td className="py-3.5 px-4">{merchant.location ? merchant.location.name : 'Central Database'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </main>
-      </div>
-    );
-  };
-
   return (
     <div className={darkMode ? 'dark text-[#f3f4f6]' : 'text-gray-900'}>
-      
-      {/* Dynamic View Route */}
+      {/* View Router */}
       {currentView === 'admin' ? renderAdminSide() : renderUserSide()}
 
-      {/* 1. COMMUNITY REPORT SCAM MODAL */}
+      {/* COMMUNITY REPORT SCAM MODAL */}
       {reportModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[999]">
           <div className="bg-white dark:bg-[#111726] border border-gray-200 dark:border-gray-800/80 rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
@@ -1458,7 +1494,7 @@ const App = () => {
         </div>
       )}
 
-      {/* 2. SCAN HISTORY ITEM DETAIL POPUP MODAL */}
+      {/* SCAN HISTORY DETAIL POPUP */}
       {scanDetailModalOpen && selectedScanDetail && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[999]">
           <div className="bg-white dark:bg-[#111726] border border-gray-200 dark:border-gray-800/80 rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
@@ -1473,7 +1509,7 @@ const App = () => {
                     : selectedScanDetail.riskLevel === 'medium'
                     ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
                     : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                }`}>{selectedScanDetail.riskScore}%</span>
+                }`}>{selectedScanDetail.riskScore || selectedScanDetail.riskScore === 0 ? selectedScanDetail.riskScore : selectedScanDetail.scan?.riskScore}%</span>
               </div>
               
               <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 dark:text-gray-400">
