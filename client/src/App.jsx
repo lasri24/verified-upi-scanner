@@ -130,11 +130,11 @@ const App = () => {
   const handleLogin = (role) => {
     setAuthError('');
     if (role === 'admin') {
-      if (usernameInput === 'admin' && passwordInput === 'admin') {
+      if (usernameInput.trim().toLowerCase() === 'admin') {
         setCurrentUser({ username: 'Administrator', role: 'admin' });
         setCurrentView('admin');
       } else {
-        setAuthError('Invalid administrator credentials (use admin/admin)');
+        setAuthError('Enter username "admin" to access the Admin Console.');
       }
     } else {
       const username = usernameInput.trim() || 'Guest User';
@@ -345,80 +345,186 @@ const App = () => {
 
   // Render Login & Registration Page
   if (currentView === 'login') {
+    const features = [
+      { icon: '🛡️', label: 'AI Fraud Detection', desc: 'ML-powered risk scoring' },
+      { icon: '📍', label: 'GPS Verification', desc: 'Location-based safety' },
+      { icon: '⚡', label: 'Instant Scan', desc: 'Real-time QR analysis' },
+    ];
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-[#070b13] flex flex-col items-center justify-center p-4">
-        {/* Toggle Mode Banner */}
-        <div className="mb-6 flex gap-2 bg-gray-200/60 dark:bg-slate-900/60 p-1 rounded-xl border border-gray-300/30 dark:border-gray-800/80">
-          <button
-            onClick={() => setPresentationMode('mobile')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition ${presentationMode === 'mobile' ? 'bg-white dark:bg-[#151f33] shadow text-blue-500' : 'text-gray-500'}`}
-          >
-            <Smartphone className="w-3.5 h-3.5" /> Mobile frame
-          </button>
-          <button
-            onClick={() => setPresentationMode('desktop')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition ${presentationMode === 'desktop' ? 'bg-white dark:bg-[#151f33] shadow text-blue-500' : 'text-gray-500'}`}
-          >
-            <Monitor className="w-3.5 h-3.5" /> Full Web Desktop
-          </button>
-        </div>
+      <div className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center p-4"
+        style={{
+          background: 'linear-gradient(135deg, #060a12 0%, #0b1326 40%, #0d1f3c 70%, #050910 100%)'
+        }}
+      >
+        {/* Animated background orbs */}
+        <div style={{
+          position: 'absolute', width: '400px', height: '400px', borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(59,130,246,0.12) 0%, transparent 70%)',
+          top: '-100px', left: '-100px', animation: 'pulse 6s ease-in-out infinite'
+        }} />
+        <div style={{
+          position: 'absolute', width: '300px', height: '300px', borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(99,102,241,0.10) 0%, transparent 70%)',
+          bottom: '-80px', right: '-80px', animation: 'pulse 8s ease-in-out infinite 2s'
+        }} />
+        <div style={{
+          position: 'absolute', width: '200px', height: '200px', borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(16,185,129,0.07) 0%, transparent 70%)',
+          top: '50%', right: '10%', animation: 'pulse 7s ease-in-out infinite 1s'
+        }} />
 
-        <div className="w-full max-w-md bg-white dark:bg-[#111726] border border-gray-200/80 dark:border-gray-800/80 rounded-3xl p-6 md:p-8 shadow-xl">
+        {/* Grid overlay */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          backgroundImage: 'linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px)',
+          backgroundSize: '40px 40px'
+        }} />
+
+        <div className="relative z-10 w-full max-w-md">
+          {/* Brand Header */}
           <div className="text-center mb-8">
-            <div className="inline-flex bg-blue-600/10 p-3 rounded-2xl border border-blue-500/20 mb-3">
-              <ShieldCheck className="w-8 h-8 text-blue-500" />
+            <div className="inline-flex relative mb-5">
+              <div style={{
+                position: 'absolute', inset: '-8px', borderRadius: '24px',
+                background: 'linear-gradient(135deg, rgba(59,130,246,0.3), rgba(99,102,241,0.3))',
+                filter: 'blur(12px)', animation: 'pulse 3s ease-in-out infinite'
+              }} />
+              <div style={{
+                background: 'linear-gradient(135deg, #1d4ed8, #4f46e5)',
+                borderRadius: '20px', padding: '18px',
+                border: '1px solid rgba(99,102,241,0.4)',
+                boxShadow: '0 0 40px rgba(59,130,246,0.25)'
+              }}>
+                <ShieldCheck style={{ width: '36px', height: '36px', color: 'white' }} />
+              </div>
             </div>
-            <h2 className="text-2xl font-bold font-display text-gray-900 dark:text-white">Sign In</h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Access Safe Scanner Client Portal or Admin Board</p>
+            <h1 style={{
+              fontSize: '2.25rem', fontWeight: 800, letterSpacing: '-0.02em',
+              background: 'linear-gradient(135deg, #93c5fd, #c7d2fe, #ffffff)',
+              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text', marginBottom: '8px'
+            }}>Safe Scanner</h1>
+            <p style={{
+              fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.15em',
+              textTransform: 'uppercase', color: '#60a5fa'
+            }}>Scan Smart. Pay Safe. 🔒</p>
           </div>
 
-          {authError && (
-            <div className="bg-red-500/10 border border-red-500/30 p-3 rounded-xl text-xs text-red-500 mb-4 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-              <span>{authError}</span>
-            </div>
-          )}
+          {/* Feature Pills */}
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '28px', flexWrap: 'wrap' }}>
+            {features.map((f) => (
+              <div key={f.label} style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '100px', padding: '6px 14px', backdropFilter: 'blur(10px)'
+              }}>
+                <span style={{ fontSize: '14px' }}>{f.icon}</span>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: '#cbd5e1' }}>{f.label}</span>
+              </div>
+            ))}
+          </div>
 
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">Username / Name</label>
-              <input
-                type="text"
-                placeholder="e.g. aditya_roy"
-                value={usernameInput}
-                onChange={(e) => setUsernameInput(e.target.value)}
-                className="w-full text-sm bg-gray-50 dark:bg-[#151d2e] border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2.5 outline-none focus:border-blue-500 transition"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">Password</label>
-              <input
-                type="password"
-                placeholder="Password (use 'admin' for Admin role)"
-                value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
-                className="w-full text-sm bg-gray-50 dark:bg-[#151d2e] border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-2.5 outline-none focus:border-blue-500 transition"
-              />
+          {/* Login Card */}
+          <div style={{
+            background: 'rgba(255,255,255,0.04)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: '28px',
+            padding: '32px',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08)'
+          }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'white', marginBottom: '6px' }}>Welcome Back</h2>
+            <p style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '24px' }}>Enter your name to access the portal</p>
+
+            {authError && (
+              <div style={{
+                background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
+                borderRadius: '14px', padding: '12px 16px', marginBottom: '20px',
+                display: 'flex', alignItems: 'center', gap: '10px'
+              }}>
+                <AlertTriangle style={{ width: '16px', height: '16px', color: '#f87171', flexShrink: 0 }} />
+                <span style={{ fontSize: '12px', color: '#f87171' }}>{authError}</span>
+              </div>
+            )}
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94a3b8', marginBottom: '8px', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Your Name</label>
+              <div style={{ position: 'relative' }}>
+                <User style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', width: '16px', height: '16px', color: '#60a5fa' }} />
+                <input
+                  type="text"
+                  id="login-username"
+                  placeholder="Enter your name or type 'admin'"
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleLogin('user')}
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    background: 'rgba(255,255,255,0.06)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: '14px', padding: '13px 16px 13px 42px',
+                    color: 'white', fontSize: '14px', outline: 'none',
+                    transition: 'border-color 0.2s',
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = 'rgba(99,102,241,0.6)'}
+                  onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.12)'}
+                />
+              </div>
             </div>
 
-            <div className="pt-2 grid grid-cols-2 gap-3">
+            {/* Login Buttons */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px' }}>
               <button
+                id="user-login-btn"
                 onClick={() => handleLogin('user')}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm py-3 px-4 rounded-xl transition flex items-center justify-center gap-2"
+                style={{
+                  background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
+                  border: '1px solid rgba(59,130,246,0.4)',
+                  borderRadius: '14px', padding: '13px 16px',
+                  color: 'white', fontWeight: 700, fontSize: '13px',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', gap: '8px',
+                  boxShadow: '0 4px 20px rgba(37,99,235,0.35)',
+                  transition: 'transform 0.15s, box-shadow 0.15s'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 8px 25px rgba(37,99,235,0.45)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(37,99,235,0.35)'; }}
               >
-                <User className="w-4 h-4" /> User Portal
+                <User style={{ width: '15px', height: '15px' }} /> User Portal
               </button>
               <button
+                id="admin-login-btn"
                 onClick={() => handleLogin('admin')}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm py-3 px-4 rounded-xl transition flex items-center justify-center gap-2"
+                style={{
+                  background: 'linear-gradient(135deg, #4338ca, #6366f1)',
+                  border: '1px solid rgba(99,102,241,0.4)',
+                  borderRadius: '14px', padding: '13px 16px',
+                  color: 'white', fontWeight: 700, fontSize: '13px',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', gap: '8px',
+                  boxShadow: '0 4px 20px rgba(67,56,202,0.35)',
+                  transition: 'transform 0.15s, box-shadow 0.15s'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 8px 25px rgba(67,56,202,0.45)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(67,56,202,0.35)'; }}
               >
-                <Shield className="w-4 h-4" /> Admin Login
+                <Shield style={{ width: '15px', height: '15px' }} /> Admin Console
               </button>
+            </div>
+
+            {/* Hint */}
+            <div style={{ marginTop: '20px', padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <p style={{ fontSize: '11px', color: '#64748b', textAlign: 'center' }}>
+                💡 Users: enter any name &nbsp;•&nbsp; Admin: enter <strong style={{ color: '#818cf8' }}>admin</strong>
+              </p>
             </div>
           </div>
 
-          <div className="mt-8 border-t border-gray-100 dark:border-gray-800/80 pt-4 text-center">
-            <p className="text-[10px] text-gray-400">Demo Logins: User (any name, blank pwd) | Admin (admin/admin)</p>
+          {/* Footer */}
+          <div style={{ textAlign: 'center', marginTop: '24px' }}>
+            <p style={{ fontSize: '10px', color: '#334155', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+              B.Tech Final Year Major Project • 2026
+            </p>
           </div>
         </div>
       </div>
