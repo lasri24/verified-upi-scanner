@@ -64,7 +64,10 @@ const ScanSchema = new mongoose.Schema({
 const Scan = mongoose.model('Scan', ScanSchema);
 
 let useMongo = false;
-const MONGO_URI = process.env.MONGO_URI;
+let MONGO_URI = process.env.MONGO_URI;
+if (MONGO_URI) {
+  MONGO_URI = MONGO_URI.replace(/^['"]|['"]$/g, '').trim();
+}
 
 // Helper function to read from DB (JSON Fallback)
 function readDb() {
