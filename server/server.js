@@ -489,39 +489,22 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Invalid username or password credentials.' });
     }
 
-    // Check Account Lockout status
-    const now = new Date();
-    if (user.lockoutUntil && new Date(user.lockoutUntil) > now) {
-      const minutesLeft = Math.ceil((new Date(user.lockoutUntil) - now) / 60000);
-      logSecurityEvent('Account Locked Out Block', cleanUsername, `Blocked access attempt. Account locked for ${minutesLeft} mins.`, req);
-      return res.status(403).json({ error: `Account locked due to consecutive failures. Try again in ${minutesLeft} minute(s).` });
-    }
-
     // Compare Hashed Password
     const passwordMatch = await bcrypt.compare(password, user.passwordHash);
 
     if (!passwordMatch) {
       // Increment login failures
       const attempts = (user.loginAttempts || 0) + 1;
-      let lockoutUntil = null;
       let msg = 'Invalid username or password credentials.';
-
-      if (attempts >= 5) {
-        lockoutUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 mins
-        msg = 'Too many failed attempts. Account has been locked for 15 minutes.';
-        logSecurityEvent('Account Lockout Triggered', cleanUsername, '5 failed consecutive logins. Locking account.', req);
-      } else {
-        logSecurityEvent('Failed Login Attempt', cleanUsername, `Incorrect password. Fail count: ${attempts}`, req);
-      }
+      logSecurityEvent('Failed Login Attempt', cleanUsername, `Incorrect password. Fail count: ${attempts}`, req);
 
       if (useMongo) {
-        await User.updateOne({ _id: user._id }, { $set: { loginAttempts: attempts, lockoutUntil } });
+        await User.updateOne({ _id: user._id }, { $set: { loginAttempts: attempts } });
       } else {
         const db = readDb();
         const uIndex = db.users.findIndex(u => u.username === cleanUsername);
         if (uIndex !== -1) {
           db.users[uIndex].loginAttempts = attempts;
-          db.users[uIndex].lockoutUntil = lockoutUntil;
           writeDb(db);
         }
       }
