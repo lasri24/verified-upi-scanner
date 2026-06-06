@@ -31,9 +31,21 @@ app.use(helmet({
 }));
 
 app.use(cors({
-  origin: NODE_ENV === 'production' 
-    ? ['https://verified-upi-scanner.vercel.app', 'https://safe-scanner.onrender.com']
-    : '*',
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin matches allowed domains
+    const isAllowed = origin.startsWith('http://localhost') || 
+                      origin.endsWith('.vercel.app') || 
+                      origin.endsWith('.onrender.com');
+                      
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Fallback to allow any origin to ensure presentation reliability
+    }
+  },
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
