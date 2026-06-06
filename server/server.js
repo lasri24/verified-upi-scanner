@@ -16,6 +16,9 @@ const DB_PATH = path.join(__dirname, 'database.json');
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_insecure_jwt_secret_key_safe_scanner';
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
+// Trust Render/Vercel reverse proxy headers for accurate client IP rate limiting
+app.set('trust proxy', 1);
+
 // 1. HTTP Security Headers
 app.use(helmet({
   contentSecurityPolicy: {
@@ -55,17 +58,17 @@ app.use(express.json());
 // 2. Global API Rate Limiting
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300, // Limit each IP to 300 requests per window
+  max: 1000, // Increased for presentation stability
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many requests from this IP. Please try again after 15 minutes.' }
+  message: { error: 'Too many requests. Please try again after 15 minutes.' }
 });
 app.use('/api/', apiLimiter);
 
 // 3. Login Rate Limiting (Prevent Brute Force)
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit to 5 failed requests per IP
+  max: 50, // Increased limit so multiple tests don't lock you out
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many authentication attempts. Please try again after 15 minutes.' }
